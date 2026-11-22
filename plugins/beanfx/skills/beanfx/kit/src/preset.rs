@@ -686,46 +686,130 @@ fn draw_hit_sparks(cv: &mut Canvas, u: f64, f: usize, n: usize, seed: u64, cx: f
 #[allow(clippy::too_many_arguments)]
 fn draw_slash(cv: &mut Canvas, u: f64, f: usize, n: usize, seed: u64, w: f64, h: f64, pal: &[Rgb; 5], ls: f64, st: bool) {
     let last = f + 1 == n;
-    let cx = w * 0.42;
-    let cy = h * 0.52;
-    let rx = w * 0.36;
-    let ry = h * 0.36;
-    let head_t = ease_out(span(u, 0.0, 0.55));
-    let tail_t = ease_in(span(u, 0.18, 0.95));
-    let fade = 1.0 - ease_in(span(u, 0.5, 1.0));
+    let cx = w * 0.36;
+    let cy = h * 0.50;
+    let rx = w * 0.48;
+    let ry = h * 0.40;
+    let head_t = ease_out(span(u, 0.0, 0.42));
+    let tail_t = ease_in(span(u, 0.14, 0.96));
+    let dissolve = span(u, 0.42, 1.0);
+    let fade = 1.0 - ease_in(span(u, 0.55, 1.0));
 
     if !last {
-        let a_start = -2.15 + tail_t * 3.5;
-        let a_end = -1.9 + head_t * 3.5;
-        let samples = 44;
-        for k in 0..=samples {
-            let frac = k as f64 / samples as f64;
-            let ang = a_start + (a_end - a_start) * frac;
-            let taper = (frac * (1.0 - frac * 0.15)).sqrt() * (1.0 - tail_t * 0.5);
-            let width = (h * 0.12 * taper * fade).max(0.8);
-            let x = cx + ang.cos() * rx;
-            let y = cy + ang.sin() * ry;
-            safe_disc(cv, x, y, width, pal[1], alpha_for(0.9 * fade, st));
-            safe_disc(cv, x, y, width * 0.68, pal[2], alpha_for(0.95 * fade, st));
-            if frac > 0.35 {
-                safe_disc(cv, x, y, (width * 0.42).max(0.7), pal[4], alpha_for(fade, st));
-            }
-            if k % 6 == 0 {
-                cv.glow(x, y, width * 2.4 + 2.0, 0.28 * fade * ls);
+        let a_tail = -1.95 + tail_t * 3.15;
+        let a_head = -1.65 + head_t * 3.05;
+        let arc_span = (a_head - a_tail).max(0.08);
+        let max_thick = (0.34 * (1.0 - 0.55 * dissolve) * (0.45 + 0.55 * ease_out(span(u, 0.0, 0.25)))).max(0.06);
+
+        // Per-pixel polar crescent SDF: razor-sharp pointed tips at both head and tail,
+        // concentric hue-shifted speed ribbons, and noise-carved ribbon breakup on dissolve.
+        for yi in 2..(cv.h.saturating_sub(2)) {
+            for xi in 2..(cv.w.saturating_sub(2)) {
+                let [x, y] = cv.world(yi, xi);
+                let nx = (x - cx) / rx;
+                let ny = (y - cy) / ry;
+                let r = np::hypot(nx, ny);
+                if !(0.45..=1.12).contains(&r) {
+                    continue;
+                }
+                let ang = ny.atan2(nx);
+                if ang < a_tail || ang > a_head {
+                    continue;
+                }
+                let frac = (ang - a_tail) / arc_span; // 0 at tail -> 1 at leading blade tip
+                // Taper to 0 at both ends: sharp leading blade tip and sharp trailing tail
+                let profile = (frac.powf(0.55) * (1.0 - frac).powf(0.32) * 2.15).min(1.0);
+                let r_outer = 1.0 + 0.03 * (frac * std::f64::consts::PI).sin();
+                let r_inner = r_outer - max_thick * profile;
+
+                let in_main = r >= r_inner && r <= r_outer;
+                // Secondary thin speed-smear echo slightly inside the main crescent during peak
+                let echo_r = r_inner - 0.08;
+                let in_echo = u > 0.12 && u < 0.72 && frac > 0.18 && frac < 0.86
+                    && (r - echo_r).abs() < 0.032 * profile;
+
+                if !in_main && !in_echo {
+                    continue;
+                }
+
+                // Anisotropic speed streaks & dissolve shredding along the arc
+                let streak = vnoise(ang * 4.5 - u * 5.0, r * 16.0, seed ^ 41);
+                if dissolve > 0.0 {
+                    let shred = dissolve * (1.25 - 0.55 * frac);
+                    if streak < shred * 0.85 {
+                        continue;
+                    }
+                }
+
+                if in_echo && !in_main {
+                    if streak > 0.35 {
+                        cv.px(yi, xi, pal[1], alpha_for(0.75 * fade, st));
+                    }
+                    continue;
+                }
+
+                let depth = ((r - r_inner) / (r_outer - r_inner).max(1e-5)).clamp(0.0, 1.0);
+                // Crisp outer razor edge -> bright mid energy -> deep trailing shadow
+                let energy = depth * 0.72 + frac * 0.28 + (streak - 0.5) * 0.16 - dissolve * 0.25;
+                let col = if energy > 0.76 && frac > 0.22 {
+                    pal[4]
+                } else if energy > 0.54 {
+                    pal[3]
+                } else if energy > 0.32 {
+                    pal[2]
+                } else if energy > 0.14 {
+                    pal[1]
+                } else {
+                    pal[0]
+                };
+                cv.px(yi, xi, col, alpha_for(fade.max(0.25), st));
             }
         }
-        // Trailing spark motes along the outer rim
-        for i in 0..8u64 {
-            let ang = -1.8 + hash01(seed ^ 41, i) * 3.0 * head_t;
-            let push = 1.0 + 0.15 * u + 0.1 * hash01(seed ^ 43, i);
-            let x = cx + ang.cos() * rx * push;
-            let y = cy + ang.sin() * ry * push;
-            safe_put(cv, x, y, pal[3], alpha_for(fade, st));
+
+        // Tight additive light along the hot outer blade edge only (keeps inner crescent crisp)
+        for k in 0..10 {
+            let frac = 0.25 + 0.72 * (k as f64 / 9.0);
+            let ang = a_tail + arc_span * frac;
+            let gx = cx + ang.cos() * rx * 0.96;
+            let gy = cy + ang.sin() * ry * 0.96;
+            cv.glow(gx, gy, (h * 0.14).max(4.0), (0.20 + 0.22 * frac) * fade * ls);
+        }
+
+        // Contact star-glint flash at the leading strike apex (frames 1..4)
+        if u > 0.08 && u < 0.52 {
+            let gk = 1.0 - span(u, 0.20, 0.52);
+            let apex = a_tail + arc_span * 0.82;
+            let ax = cx + apex.cos() * rx * 0.96;
+            let ay = cy + apex.sin() * ry * 0.96;
+            let arm = h * 0.18 * gk;
+            let diag = arm * 0.65;
+            safe_line(cv, [ax - arm, ay], [ax + arm, ay], pal[4], alpha_for(gk, st));
+            safe_line(cv, [ax, ay - arm], [ax, ay + arm], pal[4], alpha_for(gk, st));
+            safe_line(cv, [ax - diag, ay - diag], [ax + diag, ay + diag], pal[3], alpha_for(0.8 * gk, st));
+            safe_line(cv, [ax - diag, ay + diag], [ax + diag, ay - diag], pal[3], alpha_for(0.8 * gk, st));
+            cv.glow(ax, ay, h * 0.26, 0.65 * gk * ls);
+        }
+
+        // Tangential spark streaks peeling off the outer cutting edge
+        for i in 0..10u64 {
+            let base_ang = -1.55 + hash01(seed ^ 43, i) * 2.75 * head_t;
+            let fly = span(u, 0.10 + 0.04 * (i as f64), 1.0);
+            if fly <= 0.0 {
+                continue;
+            }
+            let r_push = 0.98 + 0.16 * fly * (0.6 + 0.6 * hash01(seed ^ 47, i));
+            let px = cx + base_ang.cos() * rx * r_push;
+            let py = cy + base_ang.sin() * ry * r_push;
+            let tx = -base_ang.sin() * (2.5 + 2.0 * (1.0 - fly));
+            let ty = base_ang.cos() * (2.5 + 2.0 * (1.0 - fly));
+            let c = pal[if i % 3 == 0 { 4 } else { 3 }];
+            safe_line(cv, [px - tx * 0.5, py - ty * 0.5], [px + tx * 0.5, py + ty * 0.5], c, alpha_for(fade, st));
         }
     } else {
-        let ang: f64 = 1.35;
-        safe_put(cv, cx + ang.cos() * rx * 0.95, cy + ang.sin() * ry * 0.95, pal[2], alpha_for(0.7, st));
-        safe_put(cv, cx + ang.cos() * rx * 0.9, cy + ang.sin() * ry * 0.85, pal[1], alpha_for(0.6, st));
+        // Tiny dissolving sparks on the final frame (<= 5% of peak pixels)
+        let ang: f64 = 1.25;
+        safe_put(cv, cx + ang.cos() * rx * 0.95, cy + ang.sin() * ry * 0.95, pal[3], alpha_for(0.75, st));
+        safe_put(cv, cx + (ang - 0.18).cos() * rx * 0.92, cy + (ang - 0.18).sin() * ry * 0.92, pal[2], alpha_for(0.65, st));
     }
 }
 
@@ -929,11 +1013,12 @@ fn draw_torch(cv: &mut Canvas, f: usize, n: usize, seed: u64, w: f64, h: f64, pa
             }
             let [x, y] = cv.world(yi, xi);
             let t = (base_y - y) / flame_h; // 0 at base, 1 at tip
-            if !(-0.2..=1.08).contains(&t) {
+            if !(-0.2..=1.0).contains(&t) {
                 continue;
             }
-            let sway = (phase + t * 3.8).sin() * flame_w * 0.32 * t.max(0.0);
-            let half_w = flame_w * (1.0 - t.max(0.0)).powf(0.65) * (0.9 + 0.14 * (phase * 2.0 + t * 5.0).cos());
+            let t_pos = t.clamp(0.0, 0.999);
+            let sway = (phase + t * 3.8).sin() * flame_w * 0.32 * t_pos;
+            let half_w = flame_w * (1.0 - t_pos).powf(0.65) * (0.9 + 0.14 * (phase * 2.0 + t * 5.0).cos());
             let dx = (x - (cx + sway)).abs();
             if t < 0.0 {
                 let d = np::hypot(dx / flame_w, -t / 0.22);
