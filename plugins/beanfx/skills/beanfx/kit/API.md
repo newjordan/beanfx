@@ -24,7 +24,8 @@ the unit and integration tests. Writing a draft: DRAFTS.md.
 | `rig` | a game character as the caster (`rig::load(name, None)`) |
 | `rf` | an object traced from a reference image (`rf::trace`, `rf::paint`) |
 | `dv` | points taken from a finished drawing (outline, simplify, spine, scatter, local, world) |
-| `dr` | the draft runner: `Spec`, `Effect`, `Canvas`, `dr::main` (previews, sheet, JSON, page, checks, `look`, `glow`, `bench`) |
+| `dr` | the draft runner: `Spec`, `Effect`, `Canvas`, `dr::main`, `dr::run_with` (previews, sheet, JSON, page, checks, `look`, `glow`, `bench`, `--out`, `--json`, `--sheet-only`) |
+| `preset` | built-in parametric VFX presets (`impact`, `hit-sparks`, `slash`, `muzzle-flash`, `explosion`, `dust`, `magic`, `torch`) and JSON spec loader (`PresetConfig`, `PresetEffect`, `spec_schema`) |
 
 A draft on the runner starts with `use beanfx::dr::{self, Canvas, Effect, Layer, Spec};`; the lower modules are for
 shapes the canvas does not draw. The crate re-exports `ndarray` and
@@ -165,4 +166,9 @@ may differ in the last bit there; use the helper wherever one exists.
 
 - `beanfx version` prints `{"version": "<crate version>", "protocol": 2}`. Protocol 2 means drafts link the library.
 - `beanfx gate "<prompt>" [--context "<what the image shows>"]` (`-` as the prompt reads it from stdin) prints the gate JSON (`ask`, `skip`, `source`).
+- `beanfx list [--json]` lists built-in parametric VFX presets with default dimensions, frames, fps, loop, element, and palettes.
+- `beanfx schema` prints the JSON Schema accepted by `beanfx render --spec <file|->`.
+- `beanfx render [<preset>] [--spec <file|->] [--out <dir>] [--name <name>] [--width W] [--height H] [--frames N] [--fps F] [--seed S] [--loop|--oneshot] [--palette #a,#b,...] [--light-ramp #a,...] [--glow subtle|medium|strong] [--clarity clear|balanced|hazy] [--steps] [--view side|topdown] [--facing east|west] [--columns N] [--sound] [--voice retro|soft|real] [--element <el>] [--sheet-only] [--gif] [--json]` renders a preset or JSON spec headlessly, runs every craft check, and exits 0 (clean), 1 (check failure), or 2 (error).
+- `beanfx sfx <sheet.json> [--out <dir>] [--voice retro|soft|real] [--element <el>] [--seed N] [--sounds <dir|none>] [--json]` synthesises WAV track and cues for any exported sheet JSON and updates `meta.beanfx.sound`.
+- `beanfx check <sheet.json> [--max-colours N] [--max-mb M] [--no-trim] [--json]` runs deterministic framing, edge, empty-frame, pop-off, loop-seam, VRAM budget, act, and sound checks on an exported sheet.
   setup.sh builds it into `<project>/.beanfx/bin/beanfx`.

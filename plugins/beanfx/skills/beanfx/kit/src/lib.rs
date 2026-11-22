@@ -15,6 +15,7 @@ pub mod img;
 pub mod lt;
 pub mod np;
 pub mod pfx;
+pub mod preset;
 pub mod rf;
 pub mod rig;
 pub mod rng;

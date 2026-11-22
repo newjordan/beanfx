@@ -399,6 +399,8 @@ pub struct Spec {
     pub extra: Map<String, Value>,
     /// The framing check's trim limit (`ex::TRIM`); None when the empty space is wanted (caster room in the cell).
     pub trim: Option<f64>,
+    /// Optional fixed sheet column count (e.g. `Some(n as i64)` for a single horizontal strip); None picks near-square.
+    pub columns: Option<i64>,
     /// Frames on the 4x strips; empty picks 12 evenly.
     pub pick: Vec<usize>,
     /// Frames of the glow takes; empty takes every second frame for 12 each side of the first hit.
@@ -412,7 +414,8 @@ impl Spec {
             view: "side".into(), dirs: fc::Meta::default(), glow: "medium".into(), clarity: "clear".into(),
             light_ramp: vec!["#40306a".into(), "#c0a0ff".into(), "#f0e8ff".into(), "#ffffff".into()],
             steps: None, edge_fade: 0.0, hits: vec![], states: vec![], poses: vec![], windup: 0.0, target: None,
-            dummy: None, caster_foot: None, aura: None, extra: Map::new(), trim: Some(ex::TRIM), pick: vec![], takes: vec![],
+            dummy: None, caster_foot: None, aura: None, extra: Map::new(), trim: Some(ex::TRIM), columns: None,
+            pick: vec![], takes: vec![],
         }
     }
 }
@@ -603,16 +606,92 @@ fn command(ctx: &Ctx, out: &Path, args: &[String]) -> Result<u8, String> {
     Ok(0)
 }
 
-/// The runner behind `main`, given the draft folder and the command-line arguments.
-pub fn run(fx: &dyn Effect, dir: &Path, args: &[String]) -> Result<u8, String> {
+/// Options for optional procedural sound synthesis during `run_with`.
+#[derive(Clone, Debug)]
+pub struct SoundOpts {
+    pub seed: u64,
+    pub voice: String,
+    pub element: Option<String>,
+    pub sounds: Option<String>,
+}
+
+impl Default for SoundOpts {
+    fn default() -> Self {
+        SoundOpts { seed: 1, voice: "retro".into(), element: None, sounds: None }
+    }
+}
+
+/// Pipeline options for `run_with`: custom output directory, machine-readable JSON mode, sheet-only fast path, and sound.
+#[derive(Clone, Debug, Default)]
+pub struct RunOpts {
+    pub out: Option<PathBuf>,
+    pub json: bool,
+    pub sheet_only: bool,
+    pub gif: bool,
+    pub src: Option<PathBuf>,
+    pub sound: Option<SoundOpts>,
+}
+
+/// Structured result returned by `run_with` and serialized when `--json` is passed.
+#[derive(Clone, Debug)]
+pub struct RunReport {
+    pub name: String,
+    pub out_dir: PathBuf,
+    pub sheet: PathBuf,
+    pub color: PathBuf,
+    pub light: PathBuf,
+    pub json_path: PathBuf,
+    pub gif: Option<PathBuf>,
+    pub page: Option<PathBuf>,
+    pub sound: Option<Value>,
+    pub frames: usize,
+    pub size: [usize; 2],
+    pub fps: f64,
+    pub looped: bool,
+    pub light_cover: f64,
+    pub light_mean: f64,
+    pub colours_median: i64,
+    pub problems: Vec<String>,
+    pub meta: Value,
+}
+
+impl RunReport {
+    pub fn ok(&self) -> bool {
+        self.problems.is_empty()
+    }
+
+    pub fn to_json(&self) -> Value {
+        json!({
+            "ok": self.ok(),
+            "name": self.name,
+            "out_dir": self.out_dir.display().to_string(),
+            "sheet": self.sheet.display().to_string(),
+            "color": self.color.display().to_string(),
+            "light": self.light.display().to_string(),
+            "json": self.json_path.display().to_string(),
+            "gif": self.gif.as_ref().map(|p| p.display().to_string()),
+            "page": self.page.as_ref().map(|p| p.display().to_string()),
+            "sound": self.sound,
+            "frames": self.frames,
+            "size": self.size,
+            "fps": self.fps,
+            "loop": self.looped,
+            "light_metrics": { "cover": self.light_cover, "mean": self.light_mean },
+            "colours_median": self.colours_median,
+            "checks_ok": self.ok(),
+            "problems": self.problems,
+        })
+    }
+}
+
+/// Pipeline-ready runner: writes sheets + JSON (plus optional previews, GIF, page, and SFX), runs every check, and
+/// returns a structured `RunReport`. Prints human progress unless `opts.json` is true.
+pub fn run_with(fx: &dyn Effect, dir: &Path, opts: &RunOpts) -> Result<RunReport, String> {
     let ctx = Ctx { fx, sp: fx.spec() };
     let sp = &ctx.sp;
     let name = sp.name.as_str();
-    let out = dir.join("out");
+    let out = opts.out.clone().unwrap_or_else(|| dir.join("out"));
     std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
-    if !args.is_empty() {
-        return command(&ctx, &out, args);
-    }
 
     let (mut fins, mut cols, mut lights, mut covers, mut means) = (vec![], vec![], vec![], vec![], vec![]);
     for f in 0..sp.n {
@@ -627,22 +706,32 @@ pub fn run(fx: &dyn Effect, dir: &Path, args: &[String]) -> Result<u8, String> {
     }
     let g = lt::glow_level(&sp.glow).ok_or(format!("glow {} is not subtle, medium or strong", sp.glow))?;
     let (cover, mean) = if covers.is_empty() { (0.0, 0.0) } else { (np::median(&covers), np::median(&means)) };
-    println!("light: cover {:.0} %, mean {:.3} (glow {} mean {} to {}, clarity {})", 100.0 * cover, mean, sp.glow, g.mean.0, g.mean.1, sp.clarity);
     let ncol: Vec<f64> = fins.iter().map(|x| ex::colours(x) as f64).collect();
-    println!("colours: median {} a frame", np::median(&ncol) as i64);
-
-    let previews = (0..sp.n).map(|f| ctx.preview(f, 1.0, None)).collect::<Result<Vec<_>, String>>()?;
-    let pick = if sp.pick.is_empty() { evenly(sp.n, 12) } else { sp.pick.clone() };
-    for (bg, tag) in [("#101018", "dark"), ("#5a6070", "mid")] {
-        let cells = pick.iter().filter(|&&i| i < sp.n)
-            .map(|&i| Ok(img::zoom(&pfx::composite(&previews[i], &Array3::zeros((sp.h, sp.w, 3)), Some(bg))?, 4)))
-            .collect::<Result<Vec<_>, String>>()?;
-        img::write(out.join(format!("{name}_4x_{tag}.png")), &img::tile(&cells, cells.len().min(6)).view())?;
+    let colours_median = np::median(&ncol) as i64;
+    if !opts.json {
+        println!("light: cover {:.0} %, mean {:.3} (glow {} mean {} to {}, clarity {})", 100.0 * cover, mean, sp.glow, g.mean.0, g.mean.1, sp.clarity);
+        println!("colours: median {} a frame", colours_median);
     }
-    pfx::strip(&fins, out.join(format!("{name}_1x.png")))?;
-    pfx::contact(out.join("contact.png"), &previews, sp.fps, Default::default())?;
-    let gif_frames = if sp.hits.is_empty() { previews.clone() } else { ex::hitstop(&previews, &sp.hits, sp.fps)? };
-    pfx::gif(&gif_frames, out.join(format!("{name}.gif")), sp.fps, pfx::Gif { scale: 3, ..Default::default() })?;
+
+    let mut gif_path = None;
+    if !opts.sheet_only || opts.gif {
+        let previews = (0..sp.n).map(|f| ctx.preview(f, 1.0, None)).collect::<Result<Vec<_>, String>>()?;
+        if !opts.sheet_only {
+            let pick = if sp.pick.is_empty() { evenly(sp.n, 12) } else { sp.pick.clone() };
+            for (bg, tag) in [("#101018", "dark"), ("#5a6070", "mid")] {
+                let cells = pick.iter().filter(|&&i| i < sp.n)
+                    .map(|&i| Ok(img::zoom(&pfx::composite(&previews[i], &Array3::zeros((sp.h, sp.w, 3)), Some(bg))?, 4)))
+                    .collect::<Result<Vec<_>, String>>()?;
+                img::write(out.join(format!("{name}_4x_{tag}.png")), &img::tile(&cells, cells.len().min(6)).view())?;
+            }
+            pfx::strip(&fins, out.join(format!("{name}_1x.png")))?;
+            pfx::contact(out.join("contact.png"), &previews, sp.fps, Default::default())?;
+        }
+        let gif_frames = if sp.hits.is_empty() { previews } else { ex::hitstop(&previews, &sp.hits, sp.fps)? };
+        let gp = out.join(format!("{name}.gif"));
+        pfx::gif(&gif_frames, &gp, sp.fps, pfx::Gif { scale: 3, ..Default::default() })?;
+        gif_path = Some(gp);
+    }
 
     let mut bad = vec![];
     let mut extra = fc::meta(&sp.view, sp.w as f64, sp.h as f64, sp.pivot, sp.dirs.clone())?;
@@ -666,18 +755,42 @@ pub fn run(fx: &dyn Effect, dir: &Path, args: &[String]) -> Result<u8, String> {
     }
     let extra = Value::Object(extra);
     fc::check(&extra)?;
-    let meta = ex::write(out.join("sheets"), name, &fins, sp.fps, sp.pivot, sp.looped, ex::Write {
+    let sheets_dir = out.join("sheets");
+    let mut meta = ex::write(&sheets_dir, name, &fins, sp.fps, sp.pivot, sp.looped, ex::Write {
         light: Some((&lights).into()), color: Some((&cols).into()), states: sp.states.clone(), hits: sp.hits.clone(),
-        windup: sp.windup, poses: sp.poses.clone(), target: sp.target.clone(), extra: Some(extra), hold: sp.hold,
-        ..Default::default()
+        windup: sp.windup, poses: sp.poses.clone(), target: sp.target.clone(), columns: sp.columns,
+        extra: Some(extra), hold: sp.hold, ..Default::default()
     })?;
-    if let Some(p) = ex::page(out.join("sheets").join(format!("{name}.json")), Default::default())? {
-        println!("page: {}", p.display());
+
+    let mut sound_block = None;
+    if let Some(so) = &opts.sound {
+        let sb = crate::sfx::write(&sheets_dir, name, Some(&mut meta), crate::sfx::Write {
+            seed: so.seed,
+            voice: so.voice.clone(),
+            element: so.element.clone(),
+            layers: None,
+            sounds: so.sounds.clone(),
+        })?;
+        bad.extend(crate::sfx::check(&sheets_dir, &meta)?);
+        sound_block = Some(sb);
     }
 
-    let src: PathBuf = dir.join("src").join("main.rs");
+    let mut page_path = None;
+    if !opts.sheet_only {
+        if let Some(p) = ex::page(sheets_dir.join(format!("{name}.json")), Default::default())? {
+            if !opts.json {
+                println!("page: {}", p.display());
+            }
+            page_path = Some(p);
+        }
+    }
+
+    let src = opts.src.clone().or_else(|| {
+        let candidate = dir.join("src").join("main.rs");
+        candidate.is_file().then_some(candidate)
+    });
     bad.extend(ex::check(&cols, ex::Check {
-        light: Some((&lights).into()), looped: sp.looped, hold: sp.hold, src: Some(src),
+        light: Some((&lights).into()), looped: sp.looped, hold: sp.hold, src,
         max_colours: sp.steps.map(|_| 48.0), trim: sp.trim, ..Default::default()
     })?);
     let failed = std::cell::RefCell::new(None);
@@ -694,14 +807,67 @@ pub fn run(fx: &dyn Effect, dir: &Path, args: &[String]) -> Result<u8, String> {
     if let Some(act) = meta.pointer("/meta/beanfx/act") {
         bad.extend(ex::check_act(act, sp.n as i64, sp.fps, sp.looped)?);
     }
-    if !covers.is_empty() && !(g.mean.0 <= mean && mean <= g.mean.1 + 0.04) {
-        println!("note: light mean {mean:.3} outside the {} row; retune the pools", sp.glow);
+    if !opts.json {
+        if !covers.is_empty() && !(g.mean.0 <= mean && mean <= g.mean.1 + 0.04) {
+            println!("note: light mean {mean:.3} outside the {} row; retune the pools", sp.glow);
+        }
+        for line in &bad {
+            println!("{line}");
+        }
+        println!("{}", if bad.is_empty() { "checks: clean".to_string() } else { format!("{} problems", bad.len()) });
     }
-    for line in &bad {
-        println!("{line}");
+    Ok(RunReport {
+        name: name.into(),
+        out_dir: out,
+        sheet: sheets_dir.join(format!("{name}.png")),
+        color: sheets_dir.join(format!("{name}_color.png")),
+        light: sheets_dir.join(format!("{name}_light.png")),
+        json_path: sheets_dir.join(format!("{name}.json")),
+        gif: gif_path,
+        page: page_path,
+        sound: sound_block,
+        frames: sp.n,
+        size: [sp.w, sp.h],
+        fps: sp.fps,
+        looped: sp.looped,
+        light_cover: cover,
+        light_mean: mean,
+        colours_median,
+        problems: bad,
+        meta,
+    })
+}
+
+/// The runner behind `main`, given the draft folder and the command-line arguments.
+pub fn run(fx: &dyn Effect, dir: &Path, args: &[String]) -> Result<u8, String> {
+    if let Some(first) = args.first().map(String::as_str) {
+        if !first.starts_with('-') {
+            let ctx = Ctx { fx, sp: fx.spec() };
+            let out = dir.join("out");
+            std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
+            return command(&ctx, &out, args);
+        }
     }
-    println!("{}", if bad.is_empty() { "checks: clean".to_string() } else { format!("{} problems", bad.len()) });
-    Ok(u8::from(!bad.is_empty()))
+    let mut opts = RunOpts::default();
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--out" => {
+                i += 1;
+                opts.out = Some(PathBuf::from(args.get(i).ok_or("--out needs a path")?));
+            }
+            "--json" => opts.json = true,
+            "--sheet-only" => opts.sheet_only = true,
+            "--gif" => opts.gif = true,
+            other => return Err(format!("unknown option {other}: --out <dir>, --json, --sheet-only, --gif, or look/glow/bench")),
+        }
+        i += 1;
+    }
+    let rep = run_with(fx, dir, &opts)?;
+    if opts.json {
+        println!("{}", serde_json::to_string(&rep.to_json()).map_err(|e| e.to_string())?);
+    }
+    Ok(u8::from(!rep.ok()))
 }
 
 #[cfg(test)]
