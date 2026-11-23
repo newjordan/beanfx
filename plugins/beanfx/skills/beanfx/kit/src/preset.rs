@@ -24,7 +24,7 @@ pub struct PresetInfo {
     pub light_ramp: &'static [&'static str],
 }
 
-pub const PRESETS: [PresetInfo; 8] = [
+pub const PRESETS: [PresetInfo; 14] = [
     PresetInfo {
         id: "impact",
         description: "Crisp radial impact burst with shock ring, flying shards, and hot core flash",
@@ -128,6 +128,85 @@ pub const PRESETS: [PresetInfo; 8] = [
         glow: "medium",
         palette: &["#401418", "#b02e18", "#f06e1c", "#ffc438", "#fff6c8"],
         light_ramp: &["#5a1c08", "#ff7e24", "#ffdc84", "#ffffff"],
+    },
+    // ---- Elemental Mining & Magic series ----
+    PresetInfo {
+        id: "pick-strike",
+        description: "Mining pickaxe contact flash launching gravity-arced ore chips and hot sparks",
+        default_w: 48,
+        default_h: 48,
+        default_frames: 10,
+        default_fps: 24.0,
+        looped: false,
+        element: "metal",
+        glow: "medium",
+        palette: &["#2a2428", "#685c62", "#c87830", "#ffd060", "#fffbe8"],
+        light_ramp: &["#5a2a08", "#ff9e2c", "#ffe698", "#ffffff"],
+    },
+    PresetInfo {
+        id: "ore-shatter",
+        description: "Faceted ore boulder cracking with glowing fault lines and bursting into tumbling chunks",
+        default_w: 48,
+        default_h: 48,
+        default_frames: 14,
+        default_fps: 20.0,
+        looped: false,
+        element: "metal",
+        glow: "medium",
+        palette: &["#201c2c", "#504664", "#9874b8", "#e8b4ff", "#fff8ff"],
+        light_ramp: &["#361c58", "#a868e8", "#ecc8ff", "#ffffff"],
+    },
+    PresetInfo {
+        id: "vein-gleam",
+        description: "Seamless looping metallic crystal glint sweeping across a faceted ore vein",
+        default_w: 32,
+        default_h: 32,
+        default_frames: 12,
+        default_fps: 14.0,
+        looped: true,
+        element: "arcane",
+        glow: "medium",
+        palette: &["#0e2824", "#1c6854", "#38c088", "#98ffd0", "#ffffff"],
+        light_ramp: &["#0e4838", "#38d898", "#b8ffe0", "#ffffff"],
+    },
+    PresetInfo {
+        id: "frost-shatter",
+        description: "Jagged crystalline ice spikes erupting from a frost ring and shattering into shards",
+        default_w: 64,
+        default_h: 48,
+        default_frames: 14,
+        default_fps: 20.0,
+        looped: false,
+        element: "ice",
+        glow: "medium",
+        palette: &["#102044", "#245898", "#58b8f0", "#b8f0ff", "#ffffff"],
+        light_ramp: &["#103060", "#48b0f8", "#c0f4ff", "#ffffff"],
+    },
+    PresetInfo {
+        id: "chain-bolt",
+        description: "Forked jagged lightning bolt with violent core flash, branches, and static breakup",
+        default_w: 64,
+        default_h: 48,
+        default_frames: 10,
+        default_fps: 24.0,
+        looped: false,
+        element: "lightning",
+        glow: "strong",
+        palette: &["#181848", "#3858c8", "#68c4ff", "#c8f4ff", "#ffffff"],
+        light_ramp: &["#182870", "#58b8ff", "#d0f4ff", "#ffffff"],
+    },
+    PresetInfo {
+        id: "crystal-bloom",
+        description: "Faceted crystal prism cluster erupting from an arcane rune ring with prismatic twinkles",
+        default_w: 64,
+        default_h: 64,
+        default_frames: 16,
+        default_fps: 18.0,
+        looped: false,
+        element: "arcane",
+        glow: "strong",
+        palette: &["#200e38", "#642498", "#c848d8", "#ffa4f4", "#fff8ff"],
+        light_ramp: &["#381060", "#c848e8", "#ffb8f8", "#ffffff"],
     },
 ];
 
@@ -540,15 +619,15 @@ impl Effect for PresetEffect {
         sp.edge_fade = 3.0;
         sp.columns = self.cfg.columns;
         sp.pivot = match self.info.id {
-            "dust" | "torch" => [self.w as f64 / 2.0, (self.h as f64 * 0.82).round()],
-            "muzzle-flash" => [(self.w as f64 * 0.22).round(), self.h as f64 / 2.0],
+            "dust" | "torch" | "frost-shatter" | "crystal-bloom" => [self.w as f64 / 2.0, (self.h as f64 * 0.82).round()],
+            "muzzle-flash" | "chain-bolt" => [(self.w as f64 * 0.16).round(), self.h as f64 / 2.0],
             _ => [self.w as f64 / 2.0, self.h as f64 / 2.0],
         };
         if !self.looped {
             let peak = (self.n / 4).max(1) as i64;
             let weight = match self.info.id {
-                "explosion" => "blast",
-                "slash" | "impact" => "heavy",
+                "explosion" | "ore-shatter" => "blast",
+                "slash" | "impact" | "pick-strike" | "frost-shatter" | "chain-bolt" | "crystal-bloom" => "heavy",
                 _ => "light",
             };
             if self.info.id != "dust" {
@@ -585,6 +664,12 @@ impl Effect for PresetEffect {
             "dust" => draw_dust(cv, u, f, self.n, seed, w, h, pal, ls, st),
             "magic" => draw_magic(cv, u, f, self.n, seed, cx, cy, s, pal, ls, st),
             "torch" => draw_torch(cv, f, self.n, seed, w, h, pal, ls, st),
+            "pick-strike" => draw_pick_strike(cv, u, f, self.n, seed, w, h, pal, ls, st),
+            "ore-shatter" => draw_ore_shatter(cv, u, f, self.n, seed, cx, cy, s, pal, ls, st),
+            "vein-gleam" => draw_vein_gleam(cv, f, self.n, seed, cx, cy, s, pal, ls, st),
+            "frost-shatter" => draw_frost_shatter(cv, u, f, self.n, seed, w, h, pal, ls, st),
+            "chain-bolt" => draw_chain_bolt(cv, u, f, self.n, seed, w, h, pal, ls, st),
+            "crystal-bloom" => draw_crystal_bloom(cv, u, f, self.n, seed, w, h, pal, ls, st),
             _ => {}
         }
         Ok(())
@@ -1046,4 +1131,539 @@ fn draw_torch(cv: &mut Canvas, f: usize, n: usize, seed: u64, w: f64, h: f64, pa
     }
     let flick = 0.92 + 0.12 * (phase * 2.0).sin();
     cv.glow(cx, base_y - flame_h * 0.32, w * 0.44 * flick, 0.8 * flick * ls);
+}
+
+/// Helper: crisp 4-point diamond twinkle centered at (cx, cy).
+fn safe_twinkle(cv: &mut Canvas, cx: f64, cy: f64, arm: f64, core: Rgb, rim: Rgb, a: f64) {
+    if arm < 0.8 || a <= 0.0 {
+        return;
+    }
+    safe_line(cv, [cx - arm, cy], [cx + arm, cy], rim, a);
+    safe_line(cv, [cx, cy - arm], [cx, cy + arm], rim, a);
+    safe_line(cv, [cx - arm * 0.5, cy], [cx + arm * 0.5, cy], core, a);
+    safe_line(cv, [cx, cy - arm * 0.5], [cx, cy + arm * 0.5], core, a);
+    safe_put(cv, cx, cy, core, a);
+}
+
+/// Helper: faceted shaded rock/ore polygon chunk with top-left highlight and bottom-right shadow rim.
+fn safe_chunk(cv: &mut Canvas, cx: f64, cy: f64, r: f64, rot: f64, sides: usize, pal: &[Rgb; 5], a: f64) {
+    if r < 0.8 || a <= 0.0 {
+        return;
+    }
+    let (ys, xs) = cv.win(cx - r - 1.0, cx + r + 1.0, cy - r - 1.0, cy + r + 1.0);
+    let n = sides.max(4) as f64;
+    for yi in ys {
+        if yi < 2 || yi + 2 >= cv.h {
+            continue;
+        }
+        for xi in xs.clone() {
+            if xi < 2 || xi + 2 >= cv.w {
+                continue;
+            }
+            let [x, y] = cv.world(yi, xi);
+            let dx = x - cx;
+            let dy = y - cy;
+            let dist = np::hypot(dx, dy);
+            let ang = dy.atan2(dx) - rot;
+            // Regular polygon radial distance (faceted edges!)
+            let sector = TAU / n;
+            let local = ((ang % sector) + sector) % sector - sector * 0.5;
+            let poly_r = r * (sector * 0.5).cos() / local.cos().max(0.2);
+            if dist > poly_r {
+                continue;
+            }
+            let norm = dist / poly_r.max(1e-5);
+            // Directional lighting from top-left (-0.7, -0.7)
+            let lit = (-dx - dy) / (r * 1.414).max(1e-5);
+            let col = if norm > 0.78 && lit < -0.15 {
+                pal[0]
+            } else if lit > 0.35 {
+                pal[3]
+            } else if lit > -0.1 {
+                pal[2]
+            } else {
+                pal[1]
+            };
+            cv.px(yi, xi, col, a);
+        }
+    }
+}
+
+/// Helper: faceted pointed crystal/ice prism growing from `base` along unit `dir` with length `len` and half-width `hw`.
+#[allow(clippy::too_many_arguments)]
+fn safe_crystal(
+    cv: &mut Canvas,
+    base: [f64; 2],
+    dir: [f64; 2],
+    len: f64,
+    hw: f64,
+    pal: &[Rgb; 5],
+    dissolve: f64,
+    seed: u64,
+    a: f64,
+) {
+    if len < 1.5 || hw < 0.7 || a <= 0.0 {
+        return;
+    }
+    let perp = [-dir[1], dir[0]];
+    let tip = [base[0] + dir[0] * len, base[1] + dir[1] * len];
+    let x0 = base[0].min(tip[0]) - hw - 1.0;
+    let x1 = base[0].max(tip[0]) + hw + 1.0;
+    let y0 = base[1].min(tip[1]) - hw - 1.0;
+    let y1 = base[1].max(tip[1]) + hw + 1.0;
+    let (ys, xs) = cv.win(x0, x1, y0, y1);
+    for yi in ys {
+        if yi < 2 || yi + 2 >= cv.h {
+            continue;
+        }
+        for xi in xs.clone() {
+            if xi < 2 || xi + 2 >= cv.w {
+                continue;
+            }
+            let [x, y] = cv.world(yi, xi);
+            let rx = x - base[0];
+            let ry = y - base[1];
+            let u = (rx * dir[0] + ry * dir[1]) / len; // 0 at base -> 1 at tip
+            if !(0.0..=1.0).contains(&u) {
+                continue;
+            }
+            let v = (rx * perp[0] + ry * perp[1]) / hw; // -1..+1 across width
+            // Hexagonal spire profile: straight bevels then sharp pyramid tip above u = 0.62
+            let w_lim = if u < 0.62 {
+                0.78 + 0.22 * (u / 0.62)
+            } else {
+                (1.0 - (u - 0.62) / 0.38).max(0.0)
+            };
+            if v.abs() > w_lim {
+                continue;
+            }
+            if dissolve > 0.0 {
+                let n = vnoise(x / 3.5, y / 3.5, seed);
+                if n < dissolve * (1.15 - 0.35 * u) {
+                    continue;
+                }
+            }
+            // Crisp 3-facet crystal shading: bright left bevel, mid center ridge, dark right bevel, white tip highlight
+            let edge = v.abs() / w_lim.max(1e-5);
+            let col = if u > 0.84 || (v < -0.15 && edge > 0.72) {
+                pal[4]
+            } else if v < -0.08 {
+                pal[3]
+            } else if v < 0.35 {
+                pal[2]
+            } else if edge > 0.78 {
+                pal[0]
+            } else {
+                pal[1]
+            };
+            cv.px(yi, xi, col, a);
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_pick_strike(cv: &mut Canvas, u: f64, f: usize, n: usize, seed: u64, w: f64, h: f64, pal: &[Rgb; 5], ls: f64, st: bool) {
+    let last = f + 1 == n;
+    let ox = w * 0.44;
+    let oy = h * 0.52;
+    let s = w.min(h) * 0.44;
+    let fade = 1.0 - ease_in(span(u, 0.45, 1.0));
+
+    if !last {
+        // Sharp metallic strike star & contact core (frames 0..4)
+        if u < 0.48 {
+            let k = 1.0 - span(u, 0.08, 0.48);
+            let arm = s * 0.82 * k;
+            // Skewed pickaxe strike flare (emphasizes diagonal impact)
+            safe_line(cv, [ox - arm * 0.9, oy - arm * 0.45], [ox + arm * 0.95, oy + arm * 0.45], pal[4], alpha_for(k, st));
+            safe_line(cv, [ox - arm * 0.4, oy + arm * 0.85], [ox + arm * 0.45, oy - arm * 0.85], pal[3], alpha_for(k, st));
+            safe_disc(cv, ox, oy, (s * 0.24 * k).max(1.2), pal[3], alpha_for(k, st));
+            safe_disc(cv, ox, oy, (s * 0.13 * k).max(0.8), pal[4], alpha_for(k, st));
+            cv.glow(ox, oy, s * 0.72, 0.95 * k * ls);
+        }
+
+        // Small rock-dust puff at strike point
+        if u < 0.72 {
+            let dk = 1.0 - span(u, 0.2, 0.72);
+            let spread = ease_out(span(u, 0.0, 0.55));
+            for i in 0..4u64 {
+                let ang = -2.4 + (i as f64) * 0.7 + (hash01(seed ^ 19, i) - 0.5) * 0.3;
+                let px = ox + ang.cos() * s * 0.35 * spread;
+                let py = oy + ang.sin() * s * 0.28 * spread;
+                safe_disc(cv, px, py, (s * 0.14 * dk).max(0.9), pal[1], alpha_for(0.75 * dk, st));
+            }
+        }
+
+        // Gravity-arced faceted rock/ore chips bursting upward & outward
+        for i in 0..7u64 {
+            let ang = -2.65 + (i as f64 / 6.0) * 2.25 + (hash01(seed ^ 21, i) - 0.5) * 0.25;
+            let spd = s * (0.85 + 0.55 * hash01(seed ^ 23, i));
+            let t = ease_out(u);
+            let px = ox + ang.cos() * spd * t;
+            let py = oy + ang.sin() * spd * t + s * 0.65 * u * u; // gravity drop!
+            let r = (1.3 + 1.4 * hash01(seed ^ 25, i)) * (1.0 - u * 0.45);
+            let rot = u * 5.0 * if i % 2 == 0 { 1.0 } else { -1.0 };
+            safe_chunk(cv, px, py, r, rot, 5, pal, alpha_for(fade, st));
+        }
+
+        // Fast hot metal sparks shooting out ahead of the chips
+        for i in 0..10u64 {
+            let ang = -2.8 + hash01(seed ^ 27, i) * 3.2;
+            let spd = s * (0.95 + 0.65 * hash01(seed ^ 29, i));
+            let t1 = ease_out(span(u, 0.0, 0.85));
+            let t0 = (t1 - 0.18 * (1.0 - u * 0.6)).max(0.0);
+            let p1 = [ox + ang.cos() * spd * t1, oy + ang.sin() * spd * t1 + s * 0.35 * u * u];
+            let p0 = [ox + ang.cos() * spd * t0, oy + ang.sin() * spd * t0 + s * 0.35 * (u * 0.85) * (u * 0.85)];
+            let c = pal[if i % 2 == 0 { 4 } else { 3 }];
+            safe_line(cv, p0, p1, c, alpha_for(fade, st));
+            if u < 0.6 {
+                cv.glow(p1[0], p1[1], 3.0, 0.24 * fade * ls);
+            }
+        }
+    } else {
+        for i in 0..3u64 {
+            let px = ox + (hash01(seed ^ 21, i) - 0.5) * s * 1.1;
+            let py = oy + s * (0.35 + 0.25 * hash01(seed ^ 23, i));
+            safe_put(cv, px, py, pal[1], alpha_for(0.65, st));
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_ore_shatter(cv: &mut Canvas, u: f64, f: usize, n: usize, seed: u64, cx: f64, cy: f64, s: f64, pal: &[Rgb; 5], ls: f64, st: bool) {
+    let last = f + 1 == n;
+    let fade = 1.0 - ease_in(span(u, 0.55, 1.0));
+
+    if !last {
+        if u < 0.24 {
+            // Anticipation: intact faceted ore boulder with glowing fault-line cracks snapping across it
+            let shake = if f % 2 == 0 { 0.8 } else { -0.8 };
+            let r = s * 0.54;
+            safe_chunk(cv, cx + shake, cy, r, 0.25, 6, pal, alpha_for(1.0, st));
+            let ck = span(u, 0.02, 0.22);
+            // Glowing fault-line fissures
+            for i in 0..3u64 {
+                let a = (i as f64) * TAU / 3.0 + 0.4;
+                let mid = [cx + shake + a.cos() * r * 0.42 * ck, cy + a.sin() * r * 0.42 * ck];
+                let end = [cx + shake + (a + 0.28).cos() * r * 0.88 * ck, cy + (a + 0.28).sin() * r * 0.88 * ck];
+                safe_line(cv, [cx + shake, cy], mid, pal[4], 1.0);
+                safe_line(cv, mid, end, pal[3], 1.0);
+            }
+            cv.glow(cx + shake, cy, r * 1.15, (0.35 + 0.55 * ck) * ls);
+        } else {
+            // Burst phase: 7 tumbling faceted ore chunks + energy flash + dust ring + crystal glints
+            let bu = span(u, 0.22, 1.0);
+            let expand = ease_out(bu);
+
+            // Brief shatter flash right at break frame
+            if bu < 0.35 {
+                let fk = 1.0 - span(bu, 0.0, 0.35);
+                safe_disc(cv, cx, cy, s * 0.46 * fk, pal[3], alpha_for(fk, st));
+                safe_disc(cv, cx, cy, s * 0.24 * fk, pal[4], alpha_for(fk, st));
+                cv.glow(cx, cy, s * 0.95, 0.95 * fk * ls);
+            }
+
+            // Tumbling faceted ore chunks with gravity
+            for i in 0..7u64 {
+                let ang = (i as f64 / 7.0) * TAU + (hash01(seed ^ 31, i) - 0.5) * 0.35;
+                let spd = s * (0.58 + 0.42 * hash01(seed ^ 33, i));
+                let px = cx + ang.cos() * spd * expand;
+                let py = cy + ang.sin() * spd * expand + s * 0.42 * bu * bu;
+                let sz = (s * (0.16 + 0.12 * hash01(seed ^ 35, i))) * (1.0 - bu * 0.55);
+                let rot = hash01(seed ^ 37, i) * TAU + bu * 4.5 * if i % 2 == 0 { 1.0 } else { -1.0 };
+                safe_chunk(cv, px, py, sz, rot, 5 + (i as usize % 2), pal, alpha_for(fade, st));
+                if bu < 0.55 && i % 2 == 0 {
+                    cv.glow(px, py, sz * 2.2, 0.25 * (1.0 - bu) * ls);
+                }
+            }
+
+            // Sparkling ore dust motes
+            for i in 0..8u64 {
+                let ang = hash01(seed ^ 39, i) * TAU;
+                let dist = s * (0.25 + 0.68 * expand) * (0.7 + 0.3 * hash01(seed ^ 41, i));
+                safe_put(cv, cx + ang.cos() * dist, cy + ang.sin() * dist, pal[if i % 2 == 0 { 4 } else { 3 }], alpha_for(fade, st));
+            }
+        }
+    } else {
+        for i in 0..3u64 {
+            let ang = hash01(seed ^ 31, i) * TAU;
+            safe_put(cv, cx + ang.cos() * s * 0.65, cy + ang.sin() * s * 0.65, pal[1], alpha_for(0.6, st));
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_vein_gleam(cv: &mut Canvas, f: usize, n: usize, _seed: u64, cx: f64, cy: f64, s: f64, pal: &[Rgb; 5], ls: f64, st: bool) {
+    let phase = (f as f64 / n.max(1) as f64) * TAU;
+    let u = f as f64 / n.max(1) as f64;
+    // Periodic diagonal sheen sweeping cleanly across the faceted gem vein
+    let sweep = (u * 2.0 - 0.5).rem_euclid(2.0) - 0.5; // -0.5..1.5 periodic
+
+    // Central faceted crystal cluster (3 angled gems) that stays crisp every frame
+    let gems: [([f64; 2], [f64; 2], f64, f64); 3] = [
+        ([cx, cy + s * 0.58], [0.0, -1.0], s * 1.18, s * 0.34),
+        ([cx - s * 0.34, cy + s * 0.50], [-0.42, -0.91], s * 0.85, s * 0.25),
+        ([cx + s * 0.32, cy + s * 0.52], [0.46, -0.89], s * 0.80, s * 0.24),
+    ];
+    for (base, dir, len, hw) in gems {
+        safe_crystal(cv, base, dir, len, hw, pal, 0.0, 17, alpha_for(1.0, st));
+    }
+
+    // Diagonal specular sheen bar traveling across opaque gem pixels
+    let sheen_pos = (sweep - 0.5) * s * 2.4;
+    for yi in 2..(cv.h.saturating_sub(2)) {
+        for xi in 2..(cv.w.saturating_sub(2)) {
+            if cv.col[[yi, xi, 3]] <= 0.5 {
+                continue;
+            }
+            let [x, y] = cv.world(yi, xi);
+            let diag = (x - cx) * 0.72 + (y - cy) * 0.70;
+            let d = (diag - sheen_pos).abs();
+            if d < 1.6 {
+                cv.px(yi, xi, pal[4], alpha_for(1.0 - d / 1.8, st));
+            } else if d < 3.0 {
+                cv.px(yi, xi, pal[3], alpha_for(0.55, st));
+            }
+        }
+    }
+
+    // Two alternating periodic 4-point diamond twinkles on the gem tips
+    let tw1 = (0.5 + 0.5 * phase.sin()).powf(3.0);
+    let tw2 = (0.5 + 0.5 * (phase + std::f64::consts::PI).sin()).powf(3.0);
+    if tw1 > 0.15 {
+        let tx = cx - s * 0.12;
+        let ty = cy - s * 0.52;
+        safe_twinkle(cv, tx, ty, s * 0.45 * tw1, pal[4], pal[3], alpha_for(tw1, st));
+        cv.glow(tx, ty, s * 0.55, 0.65 * tw1 * ls);
+    }
+    if tw2 > 0.15 {
+        let tx = cx + s * 0.46;
+        let ty = cy - s * 0.08;
+        safe_twinkle(cv, tx, ty, s * 0.36 * tw2, pal[4], pal[3], alpha_for(tw2, st));
+        cv.glow(tx, ty, s * 0.48, 0.55 * tw2 * ls);
+    }
+    cv.glow(cx, cy + s * 0.05, s * 0.85, (0.28 + 0.12 * (phase * 2.0).cos()) * ls);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_frost_shatter(cv: &mut Canvas, u: f64, f: usize, n: usize, seed: u64, w: f64, h: f64, pal: &[Rgb; 5], ls: f64, st: bool) {
+    let last = f + 1 == n;
+    let cx = w * 0.5;
+    let ground = h * 0.82;
+    let rise = ease_out(span(u, 0.0, 0.28));
+    let shatter = span(u, 0.44, 1.0);
+    let fade = 1.0 - ease_in(span(u, 0.58, 1.0));
+
+    if !last {
+        // Ground frost ring
+        let rr = w * (0.14 + 0.24 * ease_out(span(u, 0.0, 0.35)));
+        if fade > 0.15 {
+            for k in 0..28 {
+                let ang = (k as f64 / 28.0) * TAU;
+                let gx = cx + ang.cos() * rr;
+                let gy = ground + ang.sin() * (rr * 0.24);
+                safe_put(cv, gx, gy, pal[if k % 3 == 0 { 4 } else { 2 }], alpha_for(0.85 * fade, st));
+            }
+        }
+
+        // 5 jagged ice spikes in 3-size grouping (tall center, 2 mid, 2 small outer)
+        let spikes: [(f64, [f64; 2], f64, f64); 5] = [
+            (0.0, [0.0, -1.0], h * 0.64, w * 0.085),
+            (-w * 0.12, [-0.28, -0.96], h * 0.48, w * 0.068),
+            (w * 0.12, [0.30, -0.95], h * 0.50, w * 0.068),
+            (-w * 0.23, [-0.52, -0.85], h * 0.34, w * 0.052),
+            (w * 0.23, [0.54, -0.84], h * 0.32, w * 0.052),
+        ];
+        if shatter < 0.78 {
+            for (idx, (ox, dir, max_len, hw)) in spikes.iter().enumerate() {
+                let delay = (idx as f64) * 0.03;
+                let k = ease_out(span(u, delay, 0.30 + delay));
+                if k > 0.02 {
+                    safe_crystal(
+                        cv,
+                        [cx + ox, ground],
+                        *dir,
+                        max_len * k,
+                        hw * (0.65 + 0.35 * k),
+                        pal,
+                        shatter * 1.15,
+                        seed ^ (61 + idx as u64 * 7),
+                        alpha_for(fade, st),
+                    );
+                }
+            }
+        }
+
+        // Flying diamond ice shards & cold mist on shatter phase
+        if shatter > 0.05 {
+            let su = span(u, 0.42, 1.0);
+            for i in 0..10u64 {
+                let ang = -2.85 + (i as f64 / 9.0) * 2.55 + (hash01(seed ^ 71, i) - 0.5) * 0.2;
+                let spd = w * (0.20 + 0.26 * hash01(seed ^ 73, i));
+                let px = cx + ang.cos() * spd * ease_out(su);
+                let py = (ground - h * 0.28) + ang.sin() * spd * ease_out(su) + h * 0.32 * su * su;
+                let sz = (2.6 - 1.4 * su).max(0.9);
+                safe_chunk(cv, px, py, sz, su * 6.0 + i as f64, 4, pal, alpha_for(fade, st));
+            }
+        }
+
+        cv.glow(cx, ground - h * 0.24, w * 0.34, (0.72 * rise * fade) * ls);
+        cv.glow_ring(cx, ground, rr, 3.5, 0.35 * fade * ls, 0.3);
+    } else {
+        for i in 0..3u64 {
+            let px = cx + (hash01(seed ^ 71, i) - 0.5) * w * 0.55;
+            let py = ground - h * (0.15 + 0.3 * hash01(seed ^ 73, i));
+            safe_put(cv, px, py, pal[3], alpha_for(0.65, st));
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_chain_bolt(cv: &mut Canvas, u: f64, f: usize, n: usize, seed: u64, w: f64, h: f64, pal: &[Rgb; 5], ls: f64, st: bool) {
+    let last = f + 1 == n;
+    let x0 = w * 0.10;
+    let x1 = w * 0.90;
+    let cy = h * 0.50;
+    let fade = 1.0 - ease_in(span(u, 0.45, 1.0));
+
+    if !last {
+        // Generate jagged 9-node main bolt path, re-jittered cleanly per 2 frames for authentic electric crackle
+        let snap = (f / 2) as u64;
+        let segs = 8usize;
+        let mut pts = Vec::with_capacity(segs + 1);
+        for k in 0..=segs {
+            let t = k as f64 / segs as f64;
+            let env = (t * std::f64::consts::PI).sin();
+            let j = (hash01(seed ^ 81 ^ (snap * 13), k as u64) - 0.5) * 2.0;
+            let x = x0 + (x1 - x0) * t;
+            let y = cy + j * h * 0.26 * env;
+            pts.push([x, y]);
+        }
+
+        let is_peak = (1..=4).contains(&f);
+        let dissolve = span(u, 0.48, 1.0);
+
+        let keep_seg = ((seed as usize).wrapping_add(f)) % segs;
+        for k in 0..segs {
+            if dissolve > 0.0 && k != keep_seg && hash01(seed ^ 89, k as u64 + f as u64 * 5) < dissolve * 1.15 {
+                continue;
+            }
+            let a = pts[k];
+            let b = pts[k + 1];
+            // Layered stroke: outer electric halo -> bright cyan -> hot white core
+            if is_peak {
+                cv.thick(a, b, 3.6, pal[1], alpha_for(0.85 * fade, st));
+                cv.thick(a, b, 2.1, pal[3], alpha_for(fade, st));
+                safe_line(cv, a, b, pal[4], alpha_for(fade, st));
+                cv.glow_line(a, b, 5.5, 0.42 * fade * ls);
+            } else {
+                cv.thick(a, b, 2.0, pal[2], alpha_for(0.9 * fade, st));
+                safe_line(cv, a, b, pal[4], alpha_for(fade, st));
+                cv.glow_line(a, b, 3.8, 0.25 * fade * ls);
+            }
+        }
+
+        // 2 branching secondary forks off nodes 3 and 5
+        if u > 0.08 && u < 0.72 {
+            for (bi, &node) in [3usize, 5usize].iter().enumerate() {
+                let start = pts[node];
+                let dir_y = if bi == 0 { -1.0 } else { 1.0 };
+                let mid = [
+                    start[0] + w * 0.10,
+                    (start[1] + dir_y * h * 0.16).clamp(4.0, h - 4.0),
+                ];
+                let tip = [
+                    (mid[0] + w * 0.11).min(w - 4.0),
+                    (mid[1] + dir_y * h * 0.12).clamp(4.0, h - 4.0),
+                ];
+                safe_line(cv, start, mid, pal[3], alpha_for(0.9 * fade, st));
+                safe_line(cv, mid, tip, pal[2], alpha_for(0.75 * fade, st));
+                cv.glow_line(start, mid, 3.0, 0.22 * fade * ls);
+            }
+        }
+
+        // Terminal impact flash on right target end
+        if (1..=4).contains(&f) {
+            let tk = 1.0 - span(f as f64, 1.0, 5.0);
+            let end = pts[segs];
+            safe_twinkle(cv, end[0], end[1], h * 0.22 * tk, pal[4], pal[3], alpha_for(tk, st));
+            cv.glow(end[0], end[1], h * 0.28, 0.75 * tk * ls);
+        }
+    } else {
+        safe_put(cv, x0 + (x1 - x0) * 0.35, cy - 2.0, pal[3], alpha_for(0.7, st));
+        safe_put(cv, x0 + (x1 - x0) * 0.72, cy + 2.0, pal[2], alpha_for(0.65, st));
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_crystal_bloom(cv: &mut Canvas, u: f64, f: usize, n: usize, seed: u64, w: f64, h: f64, pal: &[Rgb; 5], ls: f64, st: bool) {
+    let last = f + 1 == n;
+    let cx = w * 0.5;
+    let ground = h * 0.80;
+    let dissolve = span(u, 0.62, 1.0);
+    let fade = 1.0 - ease_in(span(u, 0.68, 1.0));
+
+    if !last {
+        // Glowing ground arcane rune ellipse
+        let rr = w * (0.16 + 0.22 * ease_out(span(u, 0.0, 0.25)));
+        let rot = u * TAU * 0.35;
+        if fade > 0.12 {
+            for k in 0..24 {
+                let ang = rot + (k as f64 / 24.0) * TAU;
+                let gx = cx + ang.cos() * rr;
+                let gy = ground + ang.sin() * (rr * 0.32);
+                let c = if k % 4 == 0 { pal[4] } else { pal[2] };
+                safe_put(cv, gx, gy, c, alpha_for(fade, st));
+            }
+            cv.glow_ring(cx, ground, rr, 4.0, 0.42 * fade * ls, 0.34);
+        }
+
+        // 5 faceted prism crystals erupting from the rune circle
+        let prisms: [(f64, [f64; 2], f64, f64, f64); 5] = [
+            (0.0, [0.0, -1.0], h * 0.62, w * 0.09, 0.05),
+            (-w * 0.12, [-0.26, -0.96], h * 0.46, w * 0.07, 0.10),
+            (w * 0.12, [0.28, -0.96], h * 0.48, w * 0.07, 0.12),
+            (-w * 0.22, [-0.48, -0.88], h * 0.32, w * 0.055, 0.16),
+            (w * 0.22, [0.48, -0.88], h * 0.30, w * 0.055, 0.18),
+        ];
+        for (idx, (ox, dir, max_len, hw, delay)) in prisms.iter().enumerate() {
+            let k = ease_out(span(u, *delay, delay + 0.26));
+            if k > 0.02 {
+                safe_crystal(
+                    cv,
+                    [cx + ox, ground],
+                    *dir,
+                    max_len * k,
+                    hw * (0.6 + 0.4 * k),
+                    pal,
+                    dissolve * 1.15,
+                    seed ^ (131 + idx as u64 * 11),
+                    alpha_for(fade, st),
+                );
+            }
+        }
+
+        // Prismatic twinkles at peak bloom + rising mana motes
+        if u > 0.25 && u < 0.85 {
+            let tk = (1.0 - ((u - 0.52).abs() / 0.33)).clamp(0.0, 1.0);
+            safe_twinkle(cv, cx, ground - h * 0.60, w * 0.12 * tk, pal[4], pal[3], alpha_for(tk, st));
+            safe_twinkle(cv, cx - w * 0.22, ground - h * 0.40, w * 0.08 * tk, pal[4], pal[3], alpha_for(tk, st));
+            safe_twinkle(cv, cx + w * 0.24, ground - h * 0.42, w * 0.08 * tk, pal[4], pal[3], alpha_for(tk, st));
+        }
+        for i in 0..8u64 {
+            let ang = hash01(seed ^ 141, i) * TAU + u * 1.5;
+            let rad = w * (0.12 + 0.24 * hash01(seed ^ 143, i));
+            let mx = cx + ang.cos() * rad;
+            let my = ground - h * (0.10 + 0.62 * ((u + hash01(seed ^ 145, i) * 0.35).min(1.0)));
+            safe_put(cv, mx, my, pal[if i % 2 == 0 { 4 } else { 3 }], alpha_for(fade, st));
+        }
+
+        cv.glow(cx, ground - h * 0.28, w * 0.36, 0.78 * ease_out(span(u, 0.0, 0.35)) * fade * ls);
+    } else {
+        for i in 0..3u64 {
+            let px = cx + (hash01(seed ^ 141, i) - 0.5) * w * 0.48;
+            let py = ground - h * (0.25 + 0.35 * hash01(seed ^ 143, i));
+            safe_put(cv, px, py, pal[3], alpha_for(0.65, st));
+        }
+    }
 }
