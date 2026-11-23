@@ -24,7 +24,7 @@ pub struct PresetInfo {
     pub light_ramp: &'static [&'static str],
 }
 
-pub const PRESETS: [PresetInfo; 14] = [
+pub const PRESETS: [PresetInfo; 15] = [
     PresetInfo {
         id: "impact",
         description: "Crisp radial impact burst with shock ring, flying shards, and hot core flash",
@@ -207,6 +207,19 @@ pub const PRESETS: [PresetInfo; 14] = [
         glow: "strong",
         palette: &["#200e38", "#642498", "#c848d8", "#ffa4f4", "#fff8ff"],
         light_ramp: &["#381060", "#c848e8", "#ffb8f8", "#ffffff"],
+    },
+    PresetInfo {
+        id: "seismic-crystal",
+        description: "Full-weight 4-act centerpiece: rune telegraph, arcane strike with impact rays, erupting monoliths, bouncing rubble, and dust plumes",
+        default_w: 128,
+        default_h: 96,
+        default_frames: 40,
+        default_fps: 24.0,
+        looped: false,
+        element: "arcane",
+        glow: "strong",
+        palette: &["#160e24", "#46266e", "#8e40cc", "#df88ff", "#fff8ff"],
+        light_ramp: &["#2c1052", "#9e48f0", "#f0b8ff", "#ffffff"],
     },
 ];
 
@@ -619,24 +632,48 @@ impl Effect for PresetEffect {
         sp.edge_fade = 3.0;
         sp.columns = self.cfg.columns;
         sp.pivot = match self.info.id {
-            "dust" | "torch" | "frost-shatter" | "crystal-bloom" => [self.w as f64 / 2.0, (self.h as f64 * 0.82).round()],
+            "dust" | "torch" | "frost-shatter" | "crystal-bloom" | "seismic-crystal" => [self.w as f64 / 2.0, (self.h as f64 * 0.78).round()],
             "muzzle-flash" | "chain-bolt" => [(self.w as f64 * 0.16).round(), self.h as f64 / 2.0],
             _ => [self.w as f64 / 2.0, self.h as f64 / 2.0],
         };
         if !self.looped {
-            let peak = (self.n / 4).max(1) as i64;
-            let weight = match self.info.id {
-                "explosion" | "ore-shatter" => "blast",
-                "slash" | "impact" | "pick-strike" | "frost-shatter" | "chain-bolt" | "crystal-bloom" => "heavy",
-                _ => "light",
-            };
-            if self.info.id != "dust" {
-                sp.hits.push(ex::hit(peak, self.fps, ex::Hit { weight: Some(weight.into()), ..Default::default() }));
-            }
-            let mid = (self.n / 3).max(1) as i64;
-            let end = (self.n - 1) as i64;
-            if mid < end {
-                sp.states = vec![("strike".into(), [0, mid]), ("dissolve".into(), [mid + 1, end])];
+            if self.info.id == "seismic-crystal" {
+                let f_strike = (self.n as f64 * 0.30).round() as i64;
+                let f_erupt = (self.n as f64 * 0.42).round() as i64;
+                let f_end = (self.n - 1) as i64;
+                sp.hits.push(ex::hit(f_strike, self.fps, ex::Hit {
+                    weight: Some("finisher".into()),
+                    freeze: Some(0.14),
+                    shake: Some(5.0),
+                    ..Default::default()
+                }));
+                sp.hits.push(ex::hit(f_erupt, self.fps, ex::Hit {
+                    weight: Some("heavy".into()),
+                    freeze: Some(0.06),
+                    shake: Some(3.0),
+                    ..Default::default()
+                }));
+                sp.states = vec![
+                    ("charge".into(), [0, (f_strike - 1).max(0)]),
+                    ("strike".into(), [f_strike, f_erupt]),
+                    ("erupt".into(), [f_erupt + 1, ((self.n as f64 * 0.75).round() as i64).min(f_end - 1)]),
+                    ("dissolve".into(), [((self.n as f64 * 0.75).round() as i64).min(f_end), f_end]),
+                ];
+            } else {
+                let peak = (self.n / 4).max(1) as i64;
+                let weight = match self.info.id {
+                    "explosion" | "ore-shatter" => "blast",
+                    "slash" | "impact" | "pick-strike" | "frost-shatter" | "chain-bolt" | "crystal-bloom" => "heavy",
+                    _ => "light",
+                };
+                if self.info.id != "dust" {
+                    sp.hits.push(ex::hit(peak, self.fps, ex::Hit { weight: Some(weight.into()), ..Default::default() }));
+                }
+                let mid = (self.n / 3).max(1) as i64;
+                let end = (self.n - 1) as i64;
+                if mid < end {
+                    sp.states = vec![("strike".into(), [0, mid]), ("dissolve".into(), [mid + 1, end])];
+                }
             }
         }
         sp.extra.insert("preset".into(), json!(self.info.id));
@@ -670,6 +707,7 @@ impl Effect for PresetEffect {
             "frost-shatter" => draw_frost_shatter(cv, u, f, self.n, seed, w, h, pal, ls, st),
             "chain-bolt" => draw_chain_bolt(cv, u, f, self.n, seed, w, h, pal, ls, st),
             "crystal-bloom" => draw_crystal_bloom(cv, u, f, self.n, seed, w, h, pal, ls, st),
+            "seismic-crystal" => draw_seismic_crystal(cv, u, f, self.n, seed, w, h, pal, ls, st),
             _ => {}
         }
         Ok(())
@@ -1665,5 +1703,364 @@ fn draw_crystal_bloom(cv: &mut Canvas, u: f64, f: usize, n: usize, seed: u64, w:
             let py = ground - h * (0.25 + 0.35 * hash01(seed ^ 143, i));
             safe_put(cv, px, py, pal[3], alpha_for(0.65, st));
         }
+    }
+}
+
+/// Helper: faceted crystal monolith with crisp 1px dark rim, 3-facet bevels, and glowing internal mana vein.
+#[allow(clippy::too_many_arguments)]
+fn safe_monolith(
+    cv: &mut Canvas,
+    base: [f64; 2],
+    dir: [f64; 2],
+    len: f64,
+    hw: f64,
+    pal: &[Rgb; 5],
+    dissolve: f64,
+    pulse: f64,
+    seed: u64,
+    a: f64,
+) {
+    if len < 2.0 || hw < 1.0 || a <= 0.0 {
+        return;
+    }
+    let perp = [-dir[1], dir[0]];
+    let tip = [base[0] + dir[0] * len, base[1] + dir[1] * len];
+    let x0 = base[0].min(tip[0]) - hw - 2.0;
+    let x1 = base[0].max(tip[0]) + hw + 2.0;
+    let y0 = base[1].min(tip[1]) - hw - 2.0;
+    let y1 = base[1].max(tip[1]) + hw + 2.0;
+    let (ys, xs) = cv.win(x0, x1, y0, y1);
+    for yi in ys {
+        if yi < 2 || yi + 2 >= cv.h {
+            continue;
+        }
+        for xi in xs.clone() {
+            if xi < 2 || xi + 2 >= cv.w {
+                continue;
+            }
+            let [x, y] = cv.world(yi, xi);
+            let rx = x - base[0];
+            let ry = y - base[1];
+            let u = (rx * dir[0] + ry * dir[1]) / len;
+            if !(-0.04..=1.04).contains(&u) {
+                continue;
+            }
+            let v = (rx * perp[0] + ry * perp[1]) / hw;
+            let uc = u.clamp(0.0, 1.0);
+            let w_lim = if uc < 0.66 {
+                0.76 + 0.24 * (uc / 0.66)
+            } else {
+                (1.0 - (uc - 0.66) / 0.34).max(0.0)
+            };
+            let rim_pad = 1.05 / hw.max(1.0);
+            if v.abs() > w_lim + rim_pad {
+                continue;
+            }
+            if dissolve > 0.0 {
+                let n = vnoise(x / 3.8, y / 3.8, seed);
+                if n < dissolve * (1.25 - 0.45 * uc) {
+                    continue;
+                }
+            }
+            // 1px dark obsidian outline rim for razor readability at 1x
+            if u < 0.0 || u > 1.0 || v.abs() > w_lim {
+                cv.px(yi, xi, pal[0], a);
+                continue;
+            }
+            // Internal glowing mana vein cracking up the spine
+            let vein_x = (vnoise(uc * 5.0, 1.0, seed ^ 19) - 0.5) * 0.45;
+            let on_vein = (v - vein_x).abs() < 0.14 && uc > 0.12 && uc < 0.88 && pulse > 0.1;
+            let edge = v.abs() / w_lim.max(1e-5);
+            let col = if on_vein && pulse > 0.55 {
+                pal[4]
+            } else if uc > 0.86 || (v < -0.15 && edge > 0.78) {
+                pal[4]
+            } else if v < -0.12 {
+                pal[3]
+            } else if v < 0.32 {
+                pal[2]
+            } else if edge > 0.76 {
+                pal[0]
+            } else {
+                pal[1]
+            };
+            cv.px(yi, xi, col, a);
+        }
+    }
+}
+
+/// Helper: organic billowing dust/smoke cloud puff with lumpy noise silhouette and directional top-left lighting.
+#[allow(clippy::too_many_arguments)]
+fn safe_smoke_puff(cv: &mut Canvas, cx: f64, cy: f64, r: f64, pal: &[Rgb; 5], seed: u64, fade: f64, st: bool) {
+    if r < 1.2 || fade <= 0.06 {
+        return;
+    }
+    let (ys, xs) = cv.win(cx - r * 1.3, cx + r * 1.3, cy - r * 1.3, cy + r * 1.3);
+    for yi in ys {
+        if yi < 2 || yi + 2 >= cv.h {
+            continue;
+        }
+        for xi in xs.clone() {
+            if xi < 2 || xi + 2 >= cv.w {
+                continue;
+            }
+            let [x, y] = cv.world(yi, xi);
+            let dx = x - cx;
+            let dy = y - cy;
+            let dist = np::hypot(dx, dy);
+            let n = vnoise(x / 5.5, y / 5.5, seed);
+            let lim = r * (0.72 + 0.42 * n);
+            if dist > lim {
+                continue;
+            }
+            if fade < 0.75 && vnoise(x / 3.5, y / 3.5, seed ^ 7) > fade * 1.25 {
+                continue;
+            }
+            let lit = (-dx * 0.6 - dy * 0.8) / lim.max(1e-5);
+            let col = if lit > 0.32 {
+                pal[2]
+            } else if lit > -0.18 {
+                pal[1]
+            } else {
+                pal[0]
+            };
+            cv.px(yi, xi, col, alpha_for(0.88 * fade, st));
+        }
+    }
+}
+
+/// Full-weight 4-act centerpiece: Seismic Crystal Rupture (128x96, 40 frames @ 24fps).
+#[allow(clippy::too_many_arguments)]
+fn draw_seismic_crystal(cv: &mut Canvas, u: f64, f: usize, n: usize, seed: u64, w: f64, h: f64, pal: &[Rgb; 5], ls: f64, st: bool) {
+    let last = f + 1 == n;
+    let cx = w * 0.50;
+    let ground = h * 0.78;
+    let flat = 0.28;
+    let fade = 1.0 - ease_in(span(u, 0.78, 1.0));
+
+    if last {
+        // 3 tiny drifting cooling embers on final frame (<= 5% peak pixels)
+        for i in 0..3u64 {
+            let px = cx + (hash01(seed ^ 201, i) - 0.5) * w * 0.44;
+            let py = ground - h * (0.18 + 0.36 * hash01(seed ^ 203, i));
+            safe_put(cv, px, py, pal[3], alpha_for(0.65, st));
+        }
+        return;
+    }
+
+    // ---- ACT 1: TELEGRAPH & DUAL RUNE CHARGE (u: 0.00 -> 0.32) ----
+    let charge = span(u, 0.0, 0.30);
+    let ring_fade = 1.0 - ease_in(span(u, 0.72, 1.0));
+    let rr_outer = w * (0.14 + 0.28 * ease_out(span(u, 0.0, 0.24)));
+    let rr_inner = rr_outer * 0.62;
+    let rot = u * TAU * 0.65;
+
+    if ring_fade > 0.08 {
+        // Outer + inner perspective arcane rune rings on the ground
+        for (rad, dots, dir) in [(rr_outer, 44usize, 1.0), (rr_inner, 28usize, -1.4)] {
+            for k in 0..dots {
+                let ang = rot * dir + (k as f64 / dots as f64) * TAU;
+                if u > 0.75 && hash01(seed ^ 211, k as u64 + f as u64 * 7) < (u - 0.72) * 3.0 {
+                    continue;
+                }
+                let gx = cx + ang.cos() * rad;
+                let gy = ground + ang.sin() * (rad * flat);
+                let is_node = k % 7 == 0;
+                let col = if is_node { pal[4] } else if u < 0.35 { pal[3] } else { pal[2] };
+                if is_node {
+                    safe_disc(cv, gx, gy, 1.3, col, alpha_for(ring_fade, st));
+                } else {
+                    safe_put(cv, gx, gy, col, alpha_for(0.88 * ring_fade, st));
+                }
+            }
+        }
+        // Inscribed hexagram chords during charge
+        if u < 0.38 {
+            let ck = (1.0 - span(u, 0.28, 0.38)) * ease_out(span(u, 0.04, 0.22));
+            for k in 0..6 {
+                let a0 = rot + (k as f64) * TAU / 6.0;
+                let a1 = rot + ((k + 2) as f64) * TAU / 6.0;
+                let p0 = [cx + a0.cos() * rr_outer * 0.94, ground + a0.sin() * rr_outer * 0.94 * flat];
+                let p1 = [cx + a1.cos() * rr_outer * 0.94, ground + a1.sin() * rr_outer * 0.94 * flat];
+                safe_line(cv, p0, p1, pal[2], alpha_for(0.75 * ck, st));
+            }
+        }
+        cv.glow_ring(cx, ground, rr_outer, 4.5, (0.25 + 0.45 * charge) * ring_fade * ls, flat);
+    }
+
+    // Inward-spiraling pressure motes during charge
+    if u < 0.32 {
+        for i in 0..14u64 {
+            let phase = (u * 3.2 + hash01(seed ^ 215, i)).fract();
+            let dist = (1.0 - ease_in(phase)) * rr_outer * 1.15;
+            let ang = hash01(seed ^ 217, i) * TAU + phase * 2.2;
+            let mx = cx + ang.cos() * dist;
+            let my = ground + ang.sin() * dist * flat - (1.0 - phase) * h * 0.24;
+            safe_put(cv, mx, my, pal[if i % 2 == 0 { 4 } else { 3 }], alpha_for(1.0 - phase * 0.2, st));
+        }
+    }
+
+    // Glowing ground fissure crack opening before & persisting after strike
+    if u > 0.14 && fade > 0.1 {
+        let f_open = ease_out(span(u, 0.14, 0.36));
+        let f_len = w * 0.34 * f_open;
+        let f_col = if u < 0.55 { pal[4] } else if u < 0.78 { pal[3] } else { pal[1] };
+        let pts = [
+            [cx - f_len, ground + 1.0],
+            [cx - f_len * 0.45, ground - 1.5],
+            [cx, ground + 0.5],
+            [cx + f_len * 0.48, ground - 1.2],
+            [cx + f_len, ground + 1.5],
+        ];
+        for k in 0..4 {
+            cv.thick(pts[k], pts[k + 1], 2.2, pal[0], alpha_for(0.9 * fade, st));
+            safe_line(cv, pts[k], pts[k + 1], f_col, alpha_for(fade, st));
+        }
+        cv.glow(cx, ground, w * 0.22 * f_open, (0.35 + 0.55 * (1.0 - span(u, 0.35, 0.9))) * fade * ls);
+    }
+
+    // ---- ACT 2: SKY-TO-GROUND ARCANE LANCE & IMPACT SHOCK-RAYS (u: 0.27 -> 0.42) ----
+    if u >= 0.26 && u <= 0.44 {
+        let su = span(u, 0.26, 0.44);
+        let bk = (1.0 - su).powf(0.75);
+        let bw = (w * 0.085 * bk).max(1.0);
+        // Vertical lance column descending cleanly inside the frame margin
+        let top_y = (bw * 1.2 + 4.0).max(12.0);
+        cv.thick([cx, top_y], [cx, ground], bw * 2.2, pal[1], alpha_for(0.8 * bk, st));
+        cv.thick([cx, top_y], [cx, ground], bw * 1.35, pal[3], alpha_for(bk, st));
+        cv.thick([cx, top_y], [cx, ground], (bw * 0.65).max(1.0), pal[4], alpha_for(bk, st));
+        cv.glow_line([cx, top_y], [cx, ground], bw * 2.6 + 3.0, 0.85 * bk * ls);
+
+        // Snap impact frames (frames 11..14): kinetic radial flash rays + blinding contact core!
+        if su < 0.55 {
+            let ik = 1.0 - span(su, 0.12, 0.55);
+            // 12 asymmetric radial impact rays
+            for i in 0..12u64 {
+                let ang = -std::f64::consts::PI * 0.95 + (i as f64 / 11.0) * std::f64::consts::PI * 0.90;
+                let r_in = 6.0 + 8.0 * su;
+                let r_out = w * (0.28 + 0.18 * hash01(seed ^ 221, i)) * (0.65 + 0.35 * ik);
+                let p0 = [cx + ang.cos() * r_in, ground + ang.sin() * r_in];
+                let p1 = [cx + ang.cos() * r_out, ground + ang.sin() * r_out];
+                safe_line(cv, p0, p1, pal[if i % 2 == 0 { 4 } else { 3 }], alpha_for(ik, st));
+            }
+            safe_disc(cv, cx, ground - 2.0, w * 0.11 * ik, pal[3], alpha_for(ik, st));
+            safe_disc(cv, cx, ground - 2.0, w * 0.06 * ik, pal[4], alpha_for(ik, st));
+            cv.glow(cx, ground - 2.0, w * 0.34, 1.35 * ik * ls);
+        }
+    }
+
+    // ---- ACT 3 & 4: DEPTH-SORTED MONOLITH ERUPTION, BOUNCING RUBBLE & DUST PLUMES (u: 0.32 -> 0.98) ----
+    if u >= 0.31 {
+        let eu = span(u, 0.31, 1.0);
+        let dissolve = span(u, 0.72, 1.0);
+        let vein_pulse = (1.0 - span(u, 0.45, 0.85)).max(0.2);
+
+        // Layer 1 (Back): billowing ground dust/smoke plumes rolling outward left & right
+        let smoke_u = span(u, 0.32, 0.96);
+        let smoke_fade = 1.0 - ease_in(span(smoke_u, 0.35, 1.0));
+        for i in 0..8u64 {
+            let side = if i % 2 == 0 { 1.0 } else { -1.0 };
+            let tier = (i / 2) as f64 / 3.0;
+            let sx = cx + side * w * (0.10 + 0.32 * ease_out(smoke_u) * (0.55 + 0.45 * tier));
+            let sy = ground - h * (0.04 + 0.14 * smoke_u * (0.6 + 0.4 * hash01(seed ^ 231, i)));
+            let sr = (w * 0.085 * (0.55 + 0.45 * (1.0 - smoke_u * 0.4))).max(2.0);
+            safe_smoke_puff(cv, sx, sy, sr, pal, seed ^ (233 + i * 7), smoke_fade, st);
+        }
+
+        // Layer 2 (Back spires): 4 darker flanking crystal monoliths tilted outward
+        let back_spires: [(f64, [f64; 2], f64, f64, f64); 4] = [
+            (-w * 0.17, [-0.56, -0.83], h * 0.40, w * 0.052, 0.06),
+            (w * 0.17, [0.56, -0.83], h * 0.38, w * 0.052, 0.08),
+            (-w * 0.25, [-0.72, -0.69], h * 0.26, w * 0.040, 0.12),
+            (w * 0.25, [0.72, -0.69], h * 0.25, w * 0.040, 0.14),
+        ];
+        for (idx, (ox, dir, max_len, hw, delay)) in back_spires.iter().enumerate() {
+            let k = ease_out(span(eu, *delay, delay + 0.16));
+            if k > 0.02 {
+                safe_monolith(
+                    cv,
+                    [cx + ox, ground + 1.0],
+                    *dir,
+                    max_len * k,
+                    hw * (0.7 + 0.3 * k),
+                    pal,
+                    dissolve * 1.15,
+                    vein_pulse * 0.6,
+                    seed ^ (241 + idx as u64 * 11),
+                    alpha_for(fade, st),
+                );
+            }
+        }
+
+        // Layer 3 (Hero monoliths): massive central spire + 2 heavy flanking pillars
+        let hero_spires: [(f64, [f64; 2], f64, f64, f64); 3] = [
+            (-w * 0.09, [-0.26, -0.96], h * 0.49, w * 0.068, 0.04),
+            (w * 0.09, [0.26, -0.96], h * 0.47, w * 0.068, 0.05),
+            (0.0, [0.0, -1.0], h * 0.64, w * 0.088, 0.0),
+        ];
+        for (idx, (ox, dir, max_len, hw, delay)) in hero_spires.iter().enumerate() {
+            let k = ease_out(span(eu, *delay, delay + 0.14));
+            if k > 0.02 {
+                safe_monolith(
+                    cv,
+                    [cx + ox, ground + 2.0],
+                    *dir,
+                    max_len * k,
+                    hw * (0.75 + 0.25 * k),
+                    pal,
+                    dissolve * 1.15,
+                    vein_pulse,
+                    seed ^ (261 + idx as u64 * 13),
+                    alpha_for(fade, st),
+                );
+            }
+        }
+
+        // Layer 4 (Front base): uplifted dark basalt slabs anchoring the monoliths to the ground
+        if dissolve < 0.7 {
+            let bf = 1.0 - span(dissolve, 0.1, 0.7);
+            for (ox, sz) in [(-w * 0.13, 4.2), (-w * 0.04, 4.8), (w * 0.05, 4.6), (w * 0.14, 4.0)] {
+                safe_chunk(cv, cx + ox, ground + 1.0, sz, ox * 0.1, 5, pal, alpha_for(bf, st));
+            }
+        }
+
+        // Real 2D bouncing rubble physics (12 faceted chunks launching & bouncing on y = ground!)
+        let t_sec = eu * 1.15;
+        let grav = h * 2.1;
+        for i in 0..12u64 {
+            let side = if i % 2 == 0 { 1.0 } else { -1.0 };
+            let vx = side * w * (0.14 + 0.34 * hash01(seed ^ 271, i));
+            let vy0 = h * (0.55 + 0.55 * hash01(seed ^ 273, i));
+            let px = cx + vx * t_sec;
+            // First arc + bounce off ground with restitution 0.45
+            let t_land = (2.0 * vy0) / grav;
+            let py = if t_sec <= t_land {
+                ground - (vy0 * t_sec - 0.5 * grav * t_sec * t_sec)
+            } else {
+                let tb = t_sec - t_land;
+                let vy1 = vy0 * 0.45;
+                let y1 = (vy1 * tb - 0.5 * grav * tb * tb).max(0.0);
+                ground - y1
+            };
+            let sz = (2.2 + 2.0 * hash01(seed ^ 275, i)) * (1.0 - eu * 0.45);
+            let rot = t_sec * 7.0 * side + hash01(seed ^ 277, i) * TAU;
+            safe_chunk(cv, px, py, sz, rot, 5, pal, alpha_for(fade, st));
+        }
+
+        // Crown diamond twinkles & rising mana embers
+        if u > 0.40 && u < 0.88 {
+            let tk = (1.0 - ((u - 0.60).abs() / 0.28)).clamp(0.0, 1.0);
+            safe_twinkle(cv, cx, ground - h * 0.62, w * 0.08 * tk, pal[4], pal[3], alpha_for(tk, st));
+            safe_twinkle(cv, cx - w * 0.15, ground - h * 0.46, w * 0.055 * tk, pal[4], pal[3], alpha_for(tk, st));
+            safe_twinkle(cv, cx + w * 0.15, ground - h * 0.44, w * 0.055 * tk, pal[4], pal[3], alpha_for(tk, st));
+        }
+        for i in 0..16u64 {
+            let mx = cx + (hash01(seed ^ 281, i) - 0.5) * w * 0.58 + (u * 6.0 + i as f64).sin() * 2.5;
+            let my = ground - h * (0.08 + 0.72 * ((eu + hash01(seed ^ 283, i) * 0.4).min(1.0)));
+            safe_put(cv, mx, my, pal[if i % 3 == 0 { 4 } else { 3 }], alpha_for(fade, st));
+        }
+
+        // Hero monolith core light
+        cv.glow(cx, ground - h * 0.28, w * 0.32, 0.85 * (1.0 - dissolve * 0.75) * fade * ls);
     }
 }
